@@ -20,12 +20,12 @@ export default new (class UserModel {
     try {
       this.initTransport();
       let info = await this.mailer.sendMail({
-        from: `Fiteng 📖" <${email_login}>`, // sender address
-        to: email_login, // list of receivers
-        subject: "Секретный ключ для подтверждения ✔", // Subject line
-        html: `<b>${key}</b>`, // html body
+        from: `Fiteng 📖" <${email_login}>`,
+        to: email_login,
+        subject: "Секретный ключ для подтверждения ✔",
+        html: `<b>${key}</b>`,
       });
-      console.log(/ok/i.test(info.response));
+      return /ok/i.test(info.response);
     } catch (e) {
       throw {
         code: "error server",

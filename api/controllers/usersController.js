@@ -1,6 +1,9 @@
 import usersModel from "../models/usersModel.js";
 import emailModel from "../models/emailModel.js";
-import { createClient } from "redis";
+import cookie from "cookie";
+import Redis from "../../redis.js";
+import bcrypt from "bcrypt";
+
 import randomatic from "randomatic";
 
 export default new (class UserController {
@@ -8,18 +11,9 @@ export default new (class UserController {
     try {
       // const data = await usersModel.getAllUsers();
 
-      const client = createClient();
+      const redis = await Redis.init();
+      const data = await redis.get("bichurinet@ya.ru");
 
-      client.on("error", (err) => {
-        throw {
-          code: "error redis",
-          message: "Отсутствует подключение к redis-server",
-          error: err,
-        };
-      });
-
-      await client.connect();
-      const data = await client.get("bichurinet@ya.ru");
       res.status(200).json({ data });
     } catch (msg) {
       res.status(500).json(msg);
@@ -32,6 +26,49 @@ export default new (class UserController {
         password: clientPassword,
         key: clientKey,
       } = req.body;
+
+      if (req.cookies["confirm-email"] && !clientKey) {
+        res.status(400).json({
+          code: "failed secret key",
+          message: "Неверный секретный ключ",
+        });
+        return;
+      }
+
+      if (req.cookies["confirm-email"]) {
+        const redis = await Redis.init();
+        const data = await redis.get(req.cookies["confirm-email"]);
+        const dataUser = JSON.parse(data);
+        if (clientKey !== dataUser.key) {
+          res.status(400).json({
+            code: "invalid secret key",
+            message: "Неверный секретный ключ",
+          });
+          return;
+        }
+
+        await usersModel.createUser([
+          req.cookies["confirm-email"],
+          dataUser.password,
+        ]);
+
+        await redis.del(req.cookies["confirm-email"]);
+        await redis.quit();
+
+        res.setHeader(
+          "Set-Cookie",
+          cookie.serialize("confirm-email", "", {
+            httpOnly: true,
+            maxAge: -1,
+          })
+        );
+
+        res.status(200).json({
+          code: "success create user",
+          message: "Пользователь создан!",
+        });
+        return;
+      }
 
       if (clientEmail === "" || clientPassword === "") {
         res.status(400).json({
@@ -55,30 +92,36 @@ export default new (class UserController {
         return;
       }
 
-      const client = createClient();
-
-      client.on("error", (err) => {
-        throw {
-          code: "error redis",
-          message: "Отсутствует подключение к redis-server",
-          error: err,
-        };
+      const secretKey = randomatic("0", 5);
+      const hashedPassword = bcrypt.hashSync(clientPassword, 10);
+      const dataUser = JSON.stringify({
+        key: secretKey,
+        password: hashedPassword,
       });
 
-      await client.connect();
+      const redis = await Redis.init();
 
-      if (!clientKey) {
-        // TODO доделать логику подтверждения почты (redis работает)
-        const secretKey = randomatic("0", 5);
-        await client.set("bichurinet@ya.ru", secretKey.toString());
-        await client.expire("bichurinet@ya.ru", 10);
-        res.status(200).json({
-          message: "good",
-        });
-      }
+      await redis.set(clientEmail, dataUser);
 
-      // const secretKey = "190545";
-      // await emailModel.sendSecretKey(secretKey);
+      await redis.expire(clientEmail, 600);
+
+      const isSending = await emailModel.sendSecretKey(secretKey);
+      console.log("Sending email:", isSending);
+
+      res.setHeader(
+        "Set-Cookie",
+        cookie.serialize("confirm-email", clientEmail, {
+          httpOnly: true,
+          maxAge: 600,
+        })
+      );
+
+      res.status(200).json({
+        code: "confirm email",
+        message: "Ждем подтверждения e-mail",
+      });
+
+      return;
     } catch (msg) {
       console.error(msg);
       res.status(500).json(msg);
