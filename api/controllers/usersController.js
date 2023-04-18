@@ -19,6 +19,9 @@ const { jwt_secret } = config().parsed;
 // failed email (400) -> Передан неккоректный email
 // cancel register (200) -> Регистрация отменена (куки и редис почищен)
 // error cancel register (400) -> Регистрация не отменится, если нету куков подтверждения почты
+// no exist user (401) -> Пользователь не найден в базе
+// invalid auth (401) -> Неверный пароль (не совпадают с фронта и с базы)
+// invalid auth (401) -> Выйдите из аккаунта (авторизация при авторизованности)
 
 function checkValidFields(clientEmail, clientPassword) {
   if (clientEmail === "" || clientPassword === "") {
@@ -144,6 +147,8 @@ export default new (class UserController {
         res.status(200).json({
           code: "success create user",
           token,
+          email: existUser.email,
+          role: existUser.role,
           message: "Пользователь создан!",
         });
         return;
@@ -262,6 +267,8 @@ export default new (class UserController {
           res.status(200).json({
             code: "auth success",
             token,
+            email: existUser.email,
+            role: existUser.role,
             message: "Вход успешно выполнен!",
           });
         } catch (err) {
